@@ -1,0 +1,82 @@
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+#define SERVOMIN 170
+#define SERVOMAX 650
+
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
+
+const int servoCount = 6;
+const int servoPins[] = {0, 1, 2, 3, 4, 5}; // Change these to the channels your servos are connected to
+
+int defaultPositions[servoCount] = {90, 90, 90, 90, 90, 90}; // Set default positions to 90 degrees (neutral)
+int servoAngles[servoCount];
+int servoDirections[servoCount];
+int angleToPulse(int angle) {
+    int pulse = map(angle, 0, 180, SERVOMIN, SERVOMAX); // Map the angle of 0-180 to Servo Pulse width
+    return pulse;
+}
+
+
+void setup() {
+  Serial.begin(9600);
+  pwm.begin();
+  pwm.setPWMFreq(60);  // Analog servos run at ~60 Hz updates
+
+  for (int i = 0; i < servoCount; i++) {
+    servoAngles[i] = defaultPositions[i];
+    pwm.setPWM(servoPins[i], 0, angleToPulse(servoAngles[i])); // Center the servo
+  }
+}
+
+void loop() {
+  // Check if data is available to read
+  if (Serial.available() > 0) {
+    // Read the incoming command*
+    
+    String command = Serial.readStringUntil('\n');
+
+    // Split the command into a list of strings
+    int commaIndex1 = command.indexOf(',');
+    int commaIndex2 = command.indexOf(',', commaIndex1 + 1);
+    int commaIndex3 = command.indexOf(',', commaIndex2 + 1);
+    int commaIndex4 = command.indexOf(',', commaIndex3 + 1);
+    int commaIndex5 = command.indexOf(',', commaIndex4 + 1);
+
+    // Extract the angles from the command
+    String theta1Str = command.substring(0, commaIndex1);
+    String theta2Str = command.substring(commaIndex1 + 1, commaIndex2);
+    String theta3Str = command.substring(commaIndex2 + 1, commaIndex3);
+    String theta4Str = command.substring(commaIndex3 + 1, commaIndex4);
+    String theta5Str = command.substring(commaIndex4 + 1, commaIndex5);
+    String theta6Str = command.substring(commaIndex5 + 1);
+
+    // Convert the strings to integers
+    int theta1 = theta1Str.toInt();
+    int theta2 = theta2Str.toInt();
+    int theta3 = theta3Str.toInt();
+    int theta4 = theta4Str.toInt();
+    int theta5 = theta5Str.toInt();
+    int theta6 = theta6Str.toInt();
+
+    // Set the servo angles
+    servoAngles[0] = theta1;
+    servoAngles[1] = theta2;
+    servoAngles[2] = theta3;
+    servoAngles[3] = theta4;
+    servoAngles[4] = theta5;
+    servoAngles[5] = theta6;
+
+    // Update the servos
+    for (int i = 0; i < 6; i++) {
+      pwm.setPWM(servoPins[i], 0, angleToPulse(servoAngles[i]));
+    }
+  }
+}
+
+
+
+
+
+
