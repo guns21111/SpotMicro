@@ -1,0 +1,169 @@
+# Import the necessary modules for 3D plotting, numerical calculations, math functions, gamepad inputs, threading, and serial communication
+from mpl_toolkits import mplot3d
+import numpy as np
+import math
+from math import *
+from inputs import get_gamepad
+import threading
+import matplotlib.pyplot as plt
+#import serial
+
+# Uncomment this line to enable serial communication with Arduino
+#ser = serial.Serial('COM4', 9600)
+
+
+# Define a function to set up the 3D view of the plot
+def setupView(limit):
+    # Create a 3D axes object
+    ax = plt.axes(projection="3d")
+    # Set the limits of the x, y, and z axes
+    ax.set_xlim(-limit, limit)
+    ax.set_ylim(-limit, limit)
+    ax.set_zlim(-limit, limit)
+    # Label the axes
+    ax.set_xlabel("X")
+    ax.set_ylabel("Z")
+    ax.set_zlabel("Y")
+    # Return the axes object
+    return ax
+
+# Use the magic command %matplotlib notebook to enable interactive plotting
+#%matplotlib notebook 
+# Define the angles for the body orientation
+omega =  pi/4 # Roll angle
+phi =0 # Pitch angle
+psi = 0 # Yaw angle
+
+# Define the coordinates for the body position
+xm = 0 # X coordinate
+ym = 0 # Y coordinate
+zm = 0 # Z coordinate
+
+# Define the lengths of the leg segments
+l1=25 # Length of the coxa segment
+l2=20 # Length of the femur segment
+l3=80 # Length of the tibia segment
+l4=80 # Length of the tarsus segment
+
+# Define the dimensions of the body
+L = 120 # Length of the body
+W = 90 # Width of the body
+
+# Define the positions of the leg points relative to the body center
+Lp=np.array([[100,-100,100,1],[100,-100,-100,1],[-100,-100,100,1],[-100,-100,-100,1]])
+
+# Define the sine and cosine of the half pi angle
+sHp=np.sin(pi/2)
+cHp=np.cos(pi/2)
+
+# Define the origin point
+Lo=np.array([0,0,0,1])
+
+# Define a function to calculate the body inverse kinematics
+def bodyIK(omega,phi,psi,xm,ym,zm):
+    # Define the rotation matrices around the x, y, and z axes
+    Rx = np.array([[1,0,0,0],
+                   [0,np.cos(omega),-np.sin(omega),0],
+                   [0,np.sin(omega),np.cos(omega),0],[0,0,0,1]])
+    Ry = np.array([[np.cos(phi),0,np.sin(phi),0],
+                   [0,1,0,0],
+                   [-np.sin(phi),0,np.cos(phi),0],[0,0,0,1]])
+    Rz = np.array([[np.cos(psi),-np.sin(psi),0,0],
+                   [np.sin(psi),np.cos(psi),0,0],[0,0,1,0],[0,0,0,1]])
+    # Multiply the rotation matrices to get the combined rotation matrix
+    Rxyz=Rx@Ry@Rz
+
+    # Define the translation matrix
+    T = np.array([[0,0,0,xm],[0,0,0,ym],[0,0,0,zm],[0,0,0,0]])
+    # Add the translation matrix to the rotation matrix to get the transformation matrix
+    Tm = T+Rxyz
+
+    # Return the transformation matrices for the four legs
+    return([Tm @ np.array([[cHp,0,sHp,L/2],[0,1,0,0],[-sHp,0,cHp,W/2],[0,0,0,1]]),
+           Tm @ np.array([[cHp,0,sHp,L/2],[0,1,0,0],[-sHp,0,cHp,-W/2],[0,0,0,1]]),
+           Tm @ np.array([[cHp,0,sHp,-L/2],[0,1,0,0],[-sHp,0,cHp,W/2],[0,0,0,1]]),
+           Tm @ np.array([[cHp,0,sHp,-L/2],[0,1,0,0],[-sHp,0,cHp,-W/2],[0,0,0,1]])
+           ])
+
+# Define a function to calculate the leg inverse kinematics
+def legIK(point):
+    # Extract the x, y, and z coordinates of the point
+    (x,y,z)=(point[0],point[1],point[2])
+    # Calculate the distance from the origin to the point on the xy plane
+    F=sqrt(x**2+y**2-l1**2)
+    # Calculate the distance from the coxa joint to the point on the xy plane
+    G=F-l2  
+    # Calculate the distance from the coxa joint to the point
+    H=sqrt(G**2+z**2)
+    # Calculate the angle of the coxa joint
+    theta1=-atan2(y,x)-atan2(F,-l1)
+
+    # Calculate the cosine of the angle of the tarsus joint
+    D=(H**2-l3**2-l4**2)/(2*l3*l4)
+    # Calculate the angle of the tarsus joint
+    theta3=acos(D) 
+
+    # Calculate the angle of the femur joint
+    theta2=atan2(z,G)-atan2(l4*sin(theta3),l3+l4*cos(theta3))
+    # Call the legIK function with the point as the argument
+    angles = legIK(point)
+#THIS IS CURRENTLY WRONG NEED TO TAKE ANGLES AFTER GENERATING OTHER LEGS.
+# Convert angles from radians to degrees
+    angles_deg = [math.degrees(angle) for angle in angles]
+
+# Ensure the angles are within the range 0-180
+    angles_deg = [max(min(180, angle), 0) for angle in angles_deg]
+
+# Convert angles to CSV format
+    angles_csv = ','.join(map(str, angles_deg))
+
+# Write to serial port
+    ser.write(angles_csv.encode())
+
+    # Return the angles of the three joints
+    return(theta1,theta2,theta3)
+
+# Define a function to calculate the leg points given the joint angles
+def calcLegPoints(angles):
+    # Extract the angles of the three joints
+    (theta1,theta2,theta3)=angles
+    # Calculate the angle of the femur and tarsus joints
+    theta23=theta2+theta3
+
+    # Calculate the position of the origin point
+    T0=Lo
+    # Calculate the position of the coxa joint
+    T1=T0+np.array([-l1*cos(theta1),l1*sin(theta1),0,0])
+    # Calculate the position of the femur joint
+    T2=T1+np.array([-l2*sin(theta1),-l2*cos(theta1),0,0])
+    # Calculate the position of the tibia joint
+    T3=T2+np.array([-l3*sin(theta1)*cos(theta2),-l3*cos(theta1)*cos(theta2),l3*sin(theta2),0])
+    # Calculate the position of the tarsus joint
+    T4=T3+np.array([-l4*sin(theta1)*cos(theta23),-l4*cos(theta1)*cos(theta23),l4*sin(theta23),0])
+
+    # Return the positions of the five points
+    return np.array([T0,T1,T2,T3,T4])
+
+# Define a function to draw the leg points on the plot
+def drawLegPoints(p):
+    # Plot the leg segments as black lines
+    plt.plot([x[0] for x in p],[x[2] for x in p],[x[1] for x in p], 'k-', lw=3)
+    # Plot the origin point as a blue circle
+    plt.plot([p[0][0]],[p[0][2]],[p[0][1]],'bo',lw=2)
+    # Plot the tarsus point as a red circle
+    plt.plot([p[4][0]],[p[4][2]],[p[4][1]],'ro',lw=2)    
+
+# Define a function to draw a pair of legs on the plot
+def drawLegPair(Tl,Tr,Ll,Lr):
+    # Define the inversion matrix to flip the right leg
+    Ix=np.array([[-1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]])
+    # Draw the left leg points
+    drawLegPoints([Tl@x for x in calcLegPoints(legIK(np.linalg.inv(Tl)@Ll))])
+    # Draw the right leg points
+    drawLegPoints([Tr@Ix@x for x in calcLegPoints(legIK(Ix@np.linalg.inv(Tr)@Lr))])
+
+# Define a function to draw the robot on the plot
+def drawRobot(Lp,angles,center):
+    # Extract the angles and coordinates for the body orientation and position
+    (omega,phi,psi)=angles
+    (xm,ym,zm)=center
