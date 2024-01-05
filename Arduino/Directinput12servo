@@ -1,0 +1,98 @@
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+#define SERVOMIN 170
+#define SERVOMAX 650
+
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
+
+const int servoCount = 12;
+const int servoPins[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}; // Change these to the channels your servos are connected to
+
+int defaultPositions[servoCount] = {90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90, 90}; // Set default positions to 90 degrees (neutral)
+int servoAngles[servoCount];
+int servoDirections[servoCount];
+int angleToPulse(int angle) {
+    int pulse = map(angle, 0, 180, SERVOMIN, SERVOMAX); // Map the angle of 0-180 to Servo Pulse width
+    return pulse;
+}
+
+
+void setup() {
+  Serial.begin(11500);
+  pwm.begin();
+  pwm.setPWMFreq(50);  // Analog servos run at ~50 Hz updates
+
+  for (int i = 0; i < servoCount; i++) {
+    servoAngles[i] = defaultPositions[i];
+    pwm.setPWM(servoPins[i], 0, angleToPulse(servoAngles[i])); // Center the servo
+
+  }
+
+}
+
+void loop() {
+// Check if data is available to read
+if (Serial.available() > 0) {
+  // Read the incoming command
+  String command = Serial.readStringUntil('\n');
+
+  // Get the first character of the command
+  char axis = command[0];
+
+  // Get the angle from the rest of the command
+  int angle = command.substring(1).toInt();
+      // Limit angle for servos 1, 4, 7, and 10
+  if (axis == 'A' || axis == 'D' || axis == 'G' || axis == 'J') {
+    if (angle > 120) angle = 120;
+    else if (angle < 60) angle = 60;
+  }
+//adjust angles based on command
+if (axis == 'A') {
+    servoAngles[0] = angle;
+    pwm.setPWM(servoPins[0], 0, angleToPulse(servoAngles[0]));
+} else if (axis == 'B') {
+    servoAngles[1] = angle;
+    pwm.setPWM(servoPins[1], 0, angleToPulse(servoAngles[1]));
+} else if (axis == 'C') {
+    servoAngles[2] = angle;
+    pwm.setPWM(servoPins[2], 0, angleToPulse(servoAngles[2]));
+} else if (axis == 'D') {
+    servoAngles[3] = angle;
+    pwm.setPWM(servoPins[3], 0, angleToPulse(servoAngles[3]));
+} else if (axis == 'E') {
+    servoAngles[4] = angle;
+    pwm.setPWM(servoPins[4], 0, angleToPulse(servoAngles[4]));
+} else if (axis == 'F') {
+    servoAngles[5] = angle;
+    pwm.setPWM(servoPins[5], 0, angleToPulse(servoAngles[5]));
+} else if (axis == 'G') {
+    servoAngles[6] = angle;
+    pwm.setPWM(servoPins[6], 0, angleToPulse(servoAngles[6]));
+} else if (axis == 'H') {
+    servoAngles[7] = angle;
+    pwm.setPWM(servoPins[7], 0, angleToPulse(servoAngles[7]));
+} else if (axis == 'I') {
+    servoAngles[8] = angle;
+    pwm.setPWM(servoPins[8], 0, angleToPulse(servoAngles[8]));
+} else if (axis == 'J') {
+    servoAngles[9] = angle;
+    pwm.setPWM(servoPins[9], 0, angleToPulse(servoAngles[9]));
+} else if (axis == 'K') {
+    servoAngles[10] = angle;
+    pwm.setPWM(servoPins[10], 0, angleToPulse(servoAngles[10]));
+} else if (axis == 'L') {
+    servoAngles[11] = angle;
+    pwm.setPWM(servoPins[11], 0, angleToPulse(servoAngles[11]));
+}
+
+}
+}
+
+
+
+
+
+
+
