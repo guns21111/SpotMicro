@@ -1,14 +1,32 @@
-from mpl_toolkits import mplot3d
 import numpy as np
+from numpy import array
 import math
 from math import *
+from math import sqrt
 from inputs import get_gamepad
 import threading
 import matplotlib.pyplot as plt
-#import serial
+from matplotlib.pyplot import figure
+import serial
+import pygame
+import time
+from mpl_toolkits import mplot3d
 
-#ser = serial.Serial('COM4', 9600)
 
+
+ser = serial.Serial('COM4', 11500)
+
+time.sleep(3)
+# Function to send command to Arduino
+def send_command(axis, angle):
+    if angle > 180:
+        angle = 180
+    if angle < 0:
+        angle = 0
+    command = axis + str(angle) + '\n'
+
+    ser.write(command.encode())
+    print(command.encode())
 
 def setupView(limit):
     ax = plt.axes(projection="3d")
@@ -20,9 +38,29 @@ def setupView(limit):
     ax.set_zlabel("Y")
     return ax
 
+def bezier_curve(t, P0, P1, P2, P3): #bezier curve for walk
+    """
+    Calculate a point on a cubic Bezier curve.
+    t: parameter from 0 to 1
+    P0, P1, P2, P3: control points of the Bezier curve
+    """
+    return (1-t)**3 * P0 + 3*(1-t)**2 * t * P1 + 3*(1-t) * t**2 * P2 + t**3 * P3
+# Define control points
+P0 = np.array([0, 0, 0]) + 50
+P1 = np.array([1, 2, 3]) + 50
+P2 = np.array([2, 3, 1]) + 50
+P3 = np.array([3, 0, 0]) + 50
+
+# Generate points along the Bezier curve
+t_values = np.linspace(0, 1, num=100)  # Parameter values
+points = [bezier_curve(t, P0, P1, P2, P3) for t in t_values]
+
 #%matplotlib notebook LEG INVERSE KINEMATICS:
 
 setupView(110).view_init(elev=20., azim=135)
+
+fig = plt.figure()
+pi= 3.14
 omega =  pi/4
 phi =0
 psi = 0
@@ -48,50 +86,68 @@ Lo=np.array([0,0,0,1])
 
 def bodyIK(omega,phi,psi,xm,ym,zm):
     Rx = np.array([[1,0,0,0],
-                   [0,np.cos(omega),-np.sin(omega),0],
-                   [0,np.sin(omega),np.cos(omega),0],[0,0,0,1]])
+                [0,np.cos(omega),-np.sin(omega),0],
+                [0,np.sin(omega),np.cos(omega),0],[0,0,0,1]])
     Ry = np.array([[np.cos(phi),0,np.sin(phi),0],
-                   [0,1,0,0],
-                   [-np.sin(phi),0,np.cos(phi),0],[0,0,0,1]])
+                [0,1,0,0],
+                [-np.sin(phi),0,np.cos(phi),0],[0,0,0,1]])
     Rz = np.array([[np.cos(psi),-np.sin(psi),0,0],
-                   [np.sin(psi),np.cos(psi),0,0],[0,0,1,0],[0,0,0,1]])
+                [np.sin(psi),np.cos(psi),0,0],[0,0,1,0],[0,0,0,1]])
     Rxyz=Rx@Ry@Rz
 
     T = np.array([[0,0,0,xm],[0,0,0,ym],[0,0,0,zm],[0,0,0,0]])
     Tm = T+Rxyz
 
     return([Tm @ np.array([[cHp,0,sHp,L/2],[0,1,0,0],[-sHp,0,cHp,W/2],[0,0,0,1]]),
-           Tm @ np.array([[cHp,0,sHp,L/2],[0,1,0,0],[-sHp,0,cHp,-W/2],[0,0,0,1]]),
-           Tm @ np.array([[cHp,0,sHp,-L/2],[0,1,0,0],[-sHp,0,cHp,W/2],[0,0,0,1]]),
-           Tm @ np.array([[cHp,0,sHp,-L/2],[0,1,0,0],[-sHp,0,cHp,-W/2],[0,0,0,1]])
-           ])
+        Tm @ np.array([[cHp,0,sHp,L/2],[0,1,0,0],[-sHp,0,cHp,-W/2],[0,0,0,1]]),
+        Tm @ np.array([[cHp,0,sHp,-L/2],[0,1,0,0],[-sHp,0,cHp,W/2],[0,0,0,1]]),
+        Tm @ np.array([[cHp,0,sHp,-L/2],[0,1,0,0],[-sHp,0,cHp,-W/2],[0,0,0,1]])
+        ])
+
+# Initialize last_angles with some default values
+last_angles = [0, 0, 0]
 
 def legIK(point):
-    (x,y,z)=(point[0],point[1],point[2])
-    F=sqrt(x**2+y**2-l1**2)
-    G=F-l2  
-    H=sqrt(G**2+z**2)
-    theta1=-atan2(y,x)-atan2(F,-l1)
+    global last_angles  # This allows us to modify last_angles inside this function
+    try:
+        (x,y,z)=(point[0],point[1],point[2])
+        F=sqrt(x**2+y**2-l1**2)
+        G=F-l2  
+        H=sqrt(G**2+z**2)
+        theta1=-atan2(y,x)-atan2(F,-l1)
 
-    D=(H**2-l3**2-l4**2)/(2*l3*l4)
-    theta3=acos(D) 
+        D=(H**2-l3**2-l4**2)/(2*l3*l4)
+        if D < -1 or D > 1:
+            print("Point is not reachable")
+            return None
+        theta3=acos(D) 
 
-    theta2=atan2(z,G)-atan2(l4*sin(theta3),l3+l4*cos(theta3))
-    angles = legIK(point)
-#THIS IS CURRENTLY WRONG NEED TO TAKE ANGLES AFTER GENERATING OTHER LEGS.
-# Convert angles from radians to degrees
-    angles_deg = [math.degrees(angle) for angle in angles]
+        theta2=atan2(z,G)-atan2(l4*sin(theta3),l3+l4*cos(theta3))
+        
+        # Define the valid ranges for each theta value
+        theta1_min, theta1_max = -pi/4, pi/4
+        theta2_min, theta2_max = -pi/2, pi/2
+        theta3_min, theta3_max = -pi/2, pi/2
+        # Check if the calculated theta values are within the valid ranges
+        # If not, adjust them to the nearest valid value
+        theta1 = max(min(theta1, theta1_max), theta1_min)
+        theta2 = max(min(theta2, theta2_max), theta2_min)
+        theta3 = max(min(theta3, theta3_max), theta3_min)
+        
+        angles = [theta1, theta2, theta3]
+        return angles
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
 
-# Ensure the angles are within the range 0-180
-    angles_deg = [max(min(180, angle), 0) for angle in angles_deg]
 
-# Convert angles to CSV format
-    angles_csv = ','.join(map(str, angles_deg))
 
-# Write to serial port
-    ser.write(angles_csv.encode())
+    #angles_deg = [math.degrees(angle) for angle in angles] # Convert angles from radians to degrees
+    #angles_deg = [max(min(180, angle), 0) for angle in angles_deg] # Ensure the angles are within the range 0-180
+    #angles_csv = ','.join(map(str, angles_deg)) # Convert angles to CSV format
+    #ser.write(angles_csv.encode()) # Write to serial port
+    
 
-    return(theta1,theta2,theta3)
 
 def calcLegPoints(angles):
     (theta1,theta2,theta3)=angles
@@ -102,6 +158,7 @@ def calcLegPoints(angles):
     T2=T1+np.array([-l2*sin(theta1),-l2*cos(theta1),0,0])
     T3=T2+np.array([-l3*sin(theta1)*cos(theta2),-l3*cos(theta1)*cos(theta2),l3*sin(theta2),0])
     T4=T3+np.array([-l4*sin(theta1)*cos(theta23),-l4*cos(theta1)*cos(theta23),l4*sin(theta23),0])
+    #print(T1,T2,T3,T4, "points on legs t1 and t2")
 
     return np.array([T0,T1,T2,T3,T4])
 
@@ -128,66 +185,103 @@ def drawRobot(Lp,angles,center):
 
     drawLegPair(Tlf,Trf,Lp[0],Lp[1])
     drawLegPair(Tlb,Trb,Lp[2],Lp[3])
- ##TO DO: modify serial write function and angles_deg function to output the 12 serperate resultant thetas.   
-    
-    
-##Define body planar positioning parameters, derived from controller inputs
-##This side of the code seems to work.
+    #print(Tlf,Tlb,Trb)
+##TO DO: modify serial write function and angles_deg function to output the 12 serperate resultant thetas.   
+pygame.init()
 
-class XboxController(object):
-    MAX_TRIG_VAL = math.pow(2, 8)
-    MAX_JOY_VAL = math.pow(2, 15)
+# Initialize the joystick
+joystick = pygame.joystick.Joystick(0)
+joystick.init()
 
-    def __init__(self):
-        self.LeftJoystickY = 0
-        self.LeftJoystickX = 0
-        self.RightJoystickY = 0
-        self.RightJoystickX = 0
-        self.LeftDPad = 0
-        self.RightDPad = 0
-        self.UpDPad = 0
-        self.DownDPad = 0
-        self._monitor_thread = threading.Thread(target=self._monitor_controller, args=())
-        self._monitor_thread.daemon = True
-        self._monitor_thread.start()
+fig = plt.figure()
 
-    def _monitor_controller(self):
-        while True:
-            events = get_gamepad()
-            for event in events:
-                if event.code == 'ABS_Y':
-                    self.LeftJoystickY = event.state / XboxController.MAX_JOY_VAL
-                elif event.code == 'ABS_X':
-                    self.LeftJoystickX = event.state / XboxController.MAX_JOY_VAL
-                elif event.code == 'ABS_RY':
-                    self.RightJoystickY = event.state / XboxController.MAX_JOY_VAL
-                elif event.code == 'ABS_RX':
-                    self.RightJoystickX = event.state / XboxController.MAX_JOY_VAL
-                elif event.code == 'BTN_TRIGGER_HAPPY1':
-                    self.LeftDPad = event.state
-                elif event.code == 'BTN_TRIGGER_HAPPY2':
-                    self.RightDPad = event.state
-                elif event.code == 'BTN_TRIGGER_HAPPY3':
-                    self.UpDPad = event.state
-                elif event.code == 'BTN_TRIGGER_HAPPY4':
-                    self.DownDPad = event.state
-
-controller = XboxController()
 
 while True:
-    A = controller.LeftJoystickY
-    B = controller.LeftJoystickX
-    C = controller.RightJoystickY
-    X = controller.RightJoystickX
-    Y = controller.LeftDPad
-    Z = controller.RightDPad
+    # Process events
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()  # Quit pygame
+            quit()  # Quit the program
+
+    # Read the analog stick values
+    A = joystick.get_axis(0)  # Left stick horizontal (left is -1, right is 1)
+    y = joystick.get_axis(1)*25  # Left stick vertical (up is -1, down is 1)
+    x = joystick.get_axis(2)*30  # Right stick horizontal (left is -1, right is 1)
+    C = joystick.get_axis(3)  # Right stick vertical (up is -1, down is 1)
+    z = joystick.get_hat(0)[0]*70  # D-pad horizontal (left is -1, right is 1)
+    B = joystick.get_hat(0)[1]  # D-pad vertical (up is 1, down is -1)
     
-    drawRobot(Lp,(A,B,C),(X,Y,Z))
-    plt.show()
+    if joystick.get_button(1): #todo make this toggle on so that control goes betwe
+        for point in points:
+    # Calculate leg points for each leg
+            leg_points = [np.linalg.inv(T) @ L for T, L in zip([Tlf, Trf, Tlb, Trb], Lp)]
 
-# Create a Thread object and target it to your function
-thread = threading.Thread(target=cont_input)
+    #print(A, B, C, x, y, z)
 
-# Start the thread
-thread.start()   
+    # Calculate body positions for each leg
+    (Tlf, Trf, Tlb, Trb) = bodyIK(A, B, C, x, y, z)
+    #print(Tlf, Trf,'angles0.0')
+
+    # Calculate leg points for each leg
+    leg_points = [np.linalg.inv(T) @ L for T, L in zip([Tlf, Trf, Tlb, Trb], Lp)]
+
+    angles_out = []  # Initialize an empty list
+
+    for point in leg_points:
+        angles = legIK(point) 
+        if angles is not None:  # Only extend if angles is not None
+            angles_out.extend(angles)
+
+    # Normalize angles and convert to degrees
+    angles_deg = [int((math.degrees(angle))) for angle in angles_out]
+    
+    #print(angles_deg)
+    # Check if angles_deg has exactly 12 values
+    if len(angles_deg) == 12:
+        # Convert all angles to CSV format
+        send_command('A', angles_deg[0]+74) 
+        send_command('B', angles_deg[1]+117)
+        send_command('C', angles_deg[2])
+        send_command('D', angles_deg[3]+131)
+        send_command('E', -(angles_deg[4]-53))
+        send_command('F', -angles_deg[5]+192)
+        send_command('G', angles_deg[6]+74)
+        send_command('H', angles_deg[7]+162)
+        send_command('I', angles_deg[8]-12)
+        send_command('J', angles_deg[9]+131)
+        send_command('K', angles_deg[10]+165)
+        send_command('L', angles_deg[11]-12)
+
+
+    # Print all the angles
+        #print(angles_out)
+    else:
+        print("Error: Expected 12 angles, but got " + str(len(angles_out)))
+    
+# Clear the input buffer
+    ser.reset_input_buffer()
+
+# Read a line from the serial port
+    line = ser.readline()
+
+# Decode the line and remove trailing newline
+    line = line.decode('utf-8').rstrip()
+
+# Check if the line is the command you're waiting for
+    if "101107" in line:
+        print('got pos')
+        elseif: print('positioning failed')
+    plt.clf()
+    ax = setupView(110)
+    ax.view_init(elev=20., azim=135)
+
+    # Draw the robot
+    drawRobot(Lp, (A, B, C), (x, y, z))
+
+    # Redraw the plot
+    plt.draw()
+    plt.pause(0.00001)
+ 
+    
+
 
