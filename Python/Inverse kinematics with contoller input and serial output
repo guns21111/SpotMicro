@@ -205,10 +205,10 @@ while True:
 
     # Read the analog stick values
     A = joystick.get_axis(0)  # Left stick horizontal (left is -1, right is 1)
-    y = joystick.get_axis(1)*25  # Left stick vertical (up is -1, down is 1)
-    x = joystick.get_axis(2)*30  # Right stick horizontal (left is -1, right is 1)
+    y = joystick.get_axis(1)*2  # Left stick vertical (up is -1, down is 1)
+    x = joystick.get_axis(2)*3  # Right stick horizontal (left is -1, right is 1)
     C = joystick.get_axis(3)  # Right stick vertical (up is -1, down is 1)
-    z = joystick.get_hat(0)[0]*70  # D-pad horizontal (left is -1, right is 1)
+    z = joystick.get_hat(0)[0]*7  # D-pad horizontal (left is -1, right is 1)
     B = joystick.get_hat(0)[1]  # D-pad vertical (up is 1, down is -1)
     
     if joystick.get_button(1): #todo make this toggle on so that control goes betwe
@@ -249,12 +249,13 @@ while True:
         send_command('H', angles_deg[7]+162)
         send_command('I', angles_deg[8]-12)
         send_command('J', angles_deg[9]+131)
-        send_command('K', angles_deg[10]+165)
+        send_command('K', -(angles_deg[10]-15))
         send_command('L', angles_deg[11]-12)
 
 
     # Print all the angles
-        #print(angles_out)
+        
+        print(angles_deg)
     else:
         print("Error: Expected 12 angles, but got " + str(len(angles_out)))
     
