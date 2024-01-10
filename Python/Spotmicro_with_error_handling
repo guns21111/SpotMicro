@@ -1,0 +1,354 @@
+
+import numpy as np
+from numpy import array
+import math
+from math import *
+from math import sqrt
+from inputs import get_gamepad
+import threading
+import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure
+import serial
+import pygame
+import time
+from mpl_toolkits import mplot3d
+import struct
+import serial.threaded
+import threading
+import queue
+
+# Initalise Variables and Setup
+try:
+    ser = serial.Serial('COM4', 115200, timeout=.25)
+except serial.SerialException:
+    print("Running in digital only mode")
+    ser = None
+time.sleep(2)
+# Initialize the joystick
+try:
+    joystick = pygame.joystick.Joystick(0)
+    joystick.init()
+except pygame.error:
+    print('Could not find Joystick. Starting Program with keyboard input')
+    joystick = None
+
+fig = plt.figure()
+pi= 3.14
+omega =  pi/4
+phi =0
+psi = 0
+
+xm = 0
+ym = 0
+zm = 0
+
+l1=25
+l2=20
+l3=80
+l4=80
+
+L = 120
+W = 90
+
+Lp=np.array([[100,-100,100,1],[100,-100,-100,1],[-100,-100,100,1],[-100,-100,-100,1]])
+
+sHp=np.sin(pi/2)
+cHp=np.cos(pi/2)
+
+Lo=np.array([0,0,0,1])
+
+last_angles = [0, 0, 0]
+    
+# Function to send command to Arduino
+def send_command(axis,angle):
+    if (angle) > 180:
+        angle = 180
+    if (angle) < 0:
+        angle = 0
+    command = axis + str(angle) + '\n'
+    command_bytes = command.encode()
+    if ser is not None:
+        ser.write(command_bytes)
+    else: print('Connect Arduino')
+
+    
+def setupView(limit):
+    ax = plt.axes(projection="3d")
+    ax.set_xlim(-limit, limit)
+    ax.set_ylim(-limit, limit)
+    ax.set_zlim(-limit, limit)
+    ax.set_xlabel("X")
+    ax.set_ylabel("Z")
+    ax.set_zlabel("Y")
+    return ax
+
+def bezier_curve(t, P0, P1, P2, P3): #bezier curve for walk
+    """
+    Calculate a point on a cubic Bezier curve.
+    t: parameter from 0 to 1
+    P0, P1, P2, P3: control points of the Bezier curve
+    """
+    return (1-t)**3 * P0 + 3*(1-t)**2 * t * P1 + 3*(1-t) * t**2 * P2 + t**3 * P3
+
+
+def bodyIK(omega,phi,psi,xm,ym,zm):
+    Rx = np.array([[1,0,0,0],
+                [0,np.cos(omega),-np.sin(omega),0],
+                [0,np.sin(omega),np.cos(omega),0],[0,0,0,1]])
+    Ry = np.array([[np.cos(phi),0,np.sin(phi),0],
+                [0,1,0,0],
+                [-np.sin(phi),0,np.cos(phi),0],[0,0,0,1]])
+    Rz = np.array([[np.cos(psi),-np.sin(psi),0,0],
+                [np.sin(psi),np.cos(psi),0,0],[0,0,1,0],[0,0,0,1]])
+    Rxyz=Rx@Ry@Rz
+
+    T = np.array([[0,0,0,xm],[0,0,0,ym],[0,0,0,zm],[0,0,0,0]])
+    Tm = T+Rxyz
+
+    return([Tm @ np.array([[cHp,0,sHp,L/2],[0,1,0,0],[-sHp,0,cHp,W/2],[0,0,0,1]]),
+        Tm @ np.array([[cHp,0,sHp,L/2],[0,1,0,0],[-sHp,0,cHp,-W/2],[0,0,0,1]]),
+        Tm @ np.array([[cHp,0,sHp,-L/2],[0,1,0,0],[-sHp,0,cHp,W/2],[0,0,0,1]]),
+        Tm @ np.array([[cHp,0,sHp,-L/2],[0,1,0,0],[-sHp,0,cHp,-W/2],[0,0,0,1]])
+        ])
+
+
+def legIK(point):
+    global last_angles  # This allows us to modify last_angles inside this function
+    try:
+        (x,y,z)=(point[0],point[1],point[2])
+        F=sqrt(x**2+y**2-l1**2)
+        G=F-l2  
+        H=sqrt(G**2+z**2)
+        theta1=-atan2(y,x)-atan2(F,-l1)
+
+        D=(H**2-l3**2-l4**2)/(2*l3*l4)
+        if D < -1 or D > 1:
+            print("Point is not reachable")
+            return None
+        theta3=acos(D) 
+
+        theta2=atan2(z,G)-atan2(l4*sin(theta3),l3+l4*cos(theta3))
+        
+        # Define the valid ranges for each theta value
+        theta1_min, theta1_max = -pi/4, pi/4
+        theta2_min, theta2_max = -pi/2, pi/2
+        theta3_min, theta3_max = -pi/2, pi/2
+        # Check if the calculated theta values are within the valid ranges
+        # If not, adjust them to the nearest valid value
+        theta1 = max(min(theta1, theta1_max), theta1_min)
+        theta2 = max(min(theta2, theta2_max), theta2_min)
+        theta3 = max(min(theta3, theta3_max), theta3_min)
+        
+        angles = [theta1, theta2, theta3]
+        return angles
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+
+
+def calcLegPoints(angles, last_output=[None]):
+    if angles is None:
+        if last_output[0] is None:
+            print("Error: No previous output to return")
+            return None
+        else:
+            return last_output[0]
+
+    (theta1,theta2,theta3)=angles
+    theta23=theta2+theta3
+
+    T0=Lo
+    T1=T0+np.array([-l1*cos(theta1),l1*sin(theta1),0,0])
+    T2=T1+np.array([-l2*sin(theta1),-l2*cos(theta1),0,0])
+    T3=T2+np.array([-l3*sin(theta1)*cos(theta2),-l3*cos(theta1)*cos(theta2),l3*sin(theta2),0])
+    T4=T3+np.array([-l4*sin(theta1)*cos(theta23),-l4*cos(theta1)*cos(theta23),l4*sin(theta23),0])
+
+    output = np.array([T0,T1,T2,T3,T4])
+    last_output[0] = output  # Store the output for future calls
+    return output
+
+def drawLegPoints(p, toggle=False, fixed_y=0):
+    if toggle:
+        plt.plot([x[0] for x in p],[fixed_y for _ in p],[x[1] for x in p], 'k-', lw=3)
+        plt.plot([p[0][0]],[fixed_y],[p[0][1]],'bo',lw=2)
+        plt.plot([p[4][0]],[fixed_y],[p[4][1]],'ro',lw=2)
+    else:
+        plt.plot([x[0] for x in p],[x[2] for x in p],[x[1] for x in p], 'k-', lw=3)
+        plt.plot([p[0][0]],[p[0][2]],[p[0][1]],'bo',lw=2)
+        plt.plot([p[4][0]],[p[4][2]],[p[4][1]],'ro',lw=2)  
+
+def drawLegPair(Tl,Tr,Ll,Lr):
+    Ix=np.array([[-1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]])
+    drawLegPoints([Tl@x for x in calcLegPoints(legIK(np.linalg.inv(Tl)@Ll))])
+    drawLegPoints([Tr@Ix@x for x in calcLegPoints(legIK(Ix@np.linalg.inv(Tr)@Lr))])
+
+def drawRobot(Lp,angles,center):
+    (omega,phi,psi)=angles
+    (xm,ym,zm)=center
+
+    FP=[0,0,0,1]
+    (Tlf,Trf,Tlb,Trb)= bodyIK(omega,phi,psi,xm,ym,zm)
+    CP=[x@FP for x in [Tlf,Trf,Tlb,Trb]]
+
+    CPs=[CP[x] for x in [0,1,3,2,0]]
+    plt.plot([x[0] for x in CPs],[x[2] for x in CPs],[x[1] for x in CPs], 'bo-', lw=2)
+
+    drawLegPair(Tlf,Trf,Lp[0],Lp[1])
+    drawLegPair(Tlb,Trb,Lp[2],Lp[3])
+    #print(Tlf,Tlb,Trb)
+
+
+# Define control points
+#P0 = np.array([0, 0, 0]) + 50
+#P1 = np.array([1, 2, 3]) + 50
+#P2 = np.array([2, 3, 1]) + 50
+#P3 = np.array([3, 0, 0]) + 50
+
+# Generate points along the Bezier curve
+#t_values = np.linspace(0, 1, num=100)  # Parameter values
+#points = [bezier_curve(t, P0, P1, P2, P3) for t in t_values]
+
+setupView(110).view_init(elev=20., azim=135)
+  
+pygame.init()
+
+
+
+fig = plt.figure()
+
+data_queue = queue.Queue()
+def read_serial(port, data_queue):
+    while True:
+        if port is not None:
+            data = port.read()
+            if data:
+                # If data is received, put it in the queue
+                data_queue.put(data)
+        else:
+            # If port is None, print a message and break out of the loop
+            print("Serial port is not available")
+            break
+
+
+                    # Start the read_serial function in a separate thread
+                    
+read_thread = threading.Thread(target=read_serial, args=(ser, data_queue))
+read_thread.start()
+
+
+class PrintValues(serial.threaded.Packetizer):
+    TERMINATOR = b'\n'
+    def connection_made(self, transport):
+        super(PrintValues, self).connection_made(transport)
+        print('port opened')
+        self.buffer = bytes()
+
+    def data_received(self, data):
+        self.buffer += data
+        if self.TERMINATOR in self.buffer:
+            lines = self.buffer.split(self.TERMINATOR)
+            self.buffer = lines[-1]
+            for line in lines[:-1]:
+                self.handle_packet(line)
+            self.buffer = bytes()  # Clear the buffer after each read
+
+    def handle_packet(self, packet):
+        if len(packet) > 1 and packet[0] == ord('R'):
+            roll = struct.unpack('i', packet[1:5])[0]
+            print(f'Roll: {roll}')
+        elif len(packet) > 1 and packet[0] == ord('P'):
+            pitch = struct.unpack('i', packet[1:5])[0]
+            print(f'Pitch: {pitch}')
+        time.sleep(0.01)    
+        ser.reset_input_buffer()
+    
+    def connection_lost(self, exc):
+        if exc:
+            print('port closed due to error:', exc)
+        else:
+            print('port closed')
+            
+while True:
+        if not data_queue.empty():
+            data = data_queue.get()
+        # Process the data
+            print(f'Received data: {data}')
+        else: print('No new data')
+            # If there is no new data, do something else
+        
+        #time.sleep(1)  # Sleep for a second
+        # Process events
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()  # Quit pygame
+                quit()  # Quit the program
+
+        if joystick is None:
+            # Use keyboard input
+            A = 0  # Left stick horizontal (left is -1, right is 1)
+            print(A)
+            y = 0  # Left stick vertical (up is -1, down is 1)
+            x = 0  # Right stick horizontal (left is -1, right is 1)
+            C = 0  # Right stick vertical (up is -1, down is 1)
+            z = 0  # D-pad horizontal (left is -1, right is 1)
+            B = 0  # D-pad vertical (up is 1, down is -1)
+        else:
+            # Use joystick input
+            A = joystick.get_axis(0)  # Left stick horizontal (left is -1, right is 1)
+            y = joystick.get_axis(1)*100  # Left stick vertical (up is -1, down is 1)
+            x = joystick.get_axis(2)*100  # Right stick horizontal (left is -1, right is 1)
+            C = joystick.get_axis(3)  # Right stick vertical (up is -1, down is 1)
+            z = joystick.get_hat(0)[0]*100  # D-pad horizontal (left is -1, right is 1)
+            B = joystick.get_hat(0)[1]  # D-pad vertical (up is 1, down is -1)
+
+            if joystick.get_button(1):  # Adjust the button index if necessary
+                # Toggle the fixed Y values
+                toggle = True
+
+        # Calculate body positions for each leg
+        (Tlf, Trf, Tlb, Trb) = bodyIK(A, B, C, x, y, z)
+        
+
+        # Calculate leg points for each leg
+        leg_points = [np.linalg.inv(T) @ L for T, L in zip([Tlf, Trf, Tlb, Trb], Lp)]
+
+        angles_out = []  # Initialize an empty list
+
+        for point in leg_points:
+            angles = legIK(point) 
+            if angles is not None:  # Only extend if angles is not None
+                angles_out.extend(angles)
+
+        # Normalize angles and convert to degrees
+        angles_deg = [int((math.degrees(angle))) for angle in angles_out]
+        
+        #print(angles_deg)
+        # Check if angles_deg has exactly 12 values
+        if len(angles_deg) == 12:
+                # Convert all angles to CSV format
+            send_command('A', (angles_deg[0]+74))  # Front Right Shoulder
+            send_command('B', (angles_deg[1]+117))  # Front Right Elbow
+            send_command('C', (angles_deg[2]))  # Front Right Wrist
+            send_command('D', (angles_deg[3]+131))  # Front Left Shoulder
+            send_command('E', -(angles_deg[4]-53))  # Front Left Elbow
+            send_command('F', -(angles_deg[5]-180))  # Front Left Wrist
+            send_command('G', (angles_deg[6]+74))  # Back Right Hip
+            send_command('H', -(angles_deg[7]+15))  # Back Right Knee
+            send_command('I', (angles_deg[8]-12))  # Back Right Ankle
+            send_command('J', (angles_deg[9]+131))  # Back Left Hip
+            send_command('K', (angles_deg[10]+165))  # Back Left Knee
+            send_command('L', (angles_deg[11]-12))  # Back Left Ankle
+        else:
+            print("Error: Expected 12 angles, but got " + str(len(angles_deg)))
+        plt.clf()
+        ax = setupView(110)
+        ax.view_init(elev=20., azim=135)
+
+        # Draw the robot
+        drawRobot(Lp, (A, B, C), (x, y, z))
+  
+        # Redraw the plot
+        plt.draw()
+        plt.pause(0.00001)
+    
