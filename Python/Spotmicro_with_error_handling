@@ -338,10 +338,28 @@ while True:
     # Calculate body positions for each leg
     (Tlf, Trf, Tlb, Trb) = bodyIK(A, B, C, x, y, z)
     
-    print('ROLL:', rvalue,'PITCH:', p_value_str)
-    print(A, C)
-    #if A > (rvalue + 5)
-      #  A - 1 
+    #roll_radin = np.radians(rvalue)#,'PITCH:', p_value_str)
+    
+    #print(rvalue,A,p_value_str,C)
+    r2=''
+    p2 = ''
+    if rvalue:
+        r2 = float(rvalue)
+        r3 = np.radians(r2)
+        print('rolllll:',r3)
+        print('internal roll:', A)
+        #the roll conrtol loop will go here
+        if r3 > (A + 1.5):
+            A+0.1
+            (Tlf, Trf, Tlb, Trb) = bodyIK(A, B, C, x, y, z)
+        
+    if p_value_str:
+        p2 = float(p_value_str)
+        p3 = np.radians(p2)
+        print('piitchh', p3)
+
+
+
 
     # Calculate leg points for each leg
     leg_points = [np.linalg.inv(T) @ L for T, L in zip([Tlf, Trf, Tlb, Trb], Lp)]
