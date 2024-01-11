@@ -13,5 +13,5 @@ PID loop for MPU6050/servos
 potentially migrate matplotlib visuals to Vispy
 Implement Bezier curve walk system
 Implement esp32 or similar wifi connected system to replace serial com
-Connect to VC1-Large or similar and implement vision based navigation etc.(A COMICALLY BIG TASK FOR SUCH A SHORT LINE OF TEXT)
+Connect to VC1-Large or similar and implement vision based navigation etc.
 
