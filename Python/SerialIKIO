@@ -13,10 +13,58 @@ import serial
 import pygame
 import time
 from mpl_toolkits import mplot3d
-import struct
+
 import serial.threaded
 import threading
 import queue
+from simple_pid import PID
+from simple_pid import PID as PID2
+
+
+
+# Initalise Variables and Setup
+try:
+    ser = serial.Serial('COM4', 115200, timeout=.25)
+except serial.SerialException:
+    print("Running in digital only mode")
+    ser = None
+time.sleep(2)
+# Initialize the joystick
+pygame.init()
+
+try:
+    joystick = pygame.joystick.Joystick(0)
+    joystick.init()
+except pygame.error:
+    print('Could not find Joystick. Starting Program with keyboard input')
+    joystick = None
+
+fig = plt.figure()
+pi= 3.14
+omega =  pi/4
+phi =0
+psi = 0
+
+xm = 0
+ym = 0
+zm = 0
+
+l1=25
+l2=20
+l3=80
+l4=80
+
+L = 120
+W = 90
+
+Lp=np.array([[100,-100,100,1],[100,-100,-100,1],[-100,-100,100,1],[-100,-100,-100,1]])
+
+sHp=np.sin(pi/2)
+cHp=np.cos(pi/2)
+
+Lo=np.array([0,0,0,1])
+
+last_angles = [0, 0, 0]
     
 # Function to send command to Arduino
 def send_command(axis,angle):
@@ -24,22 +72,11 @@ def send_command(axis,angle):
         angle = 180
     if (angle) < 0:
         angle = 0
-
-    # Convert the angle to a string before concatenating
     command = axis + str(angle) + '\n'
-
-    # Convert the command to bytes
     command_bytes = command.encode()
-
-    # Send the data
-    ser.write(command_bytes)
-    #print(command, command_bytes)
-    # Add the axis and angle to the transmit buffer
-    # Send the data
-    #link.send(send_size)
-    #command = axis + str(angle) + '\n'
-    #ser.write(command.encode())
-
+    if ser is not None:
+          ser.write(command_bytes)
+    else: print('Connect Arduino')
 
     
 def setupView(limit):
@@ -116,14 +153,6 @@ def legIK(point):
         return None
 
 
-
-    #angles_deg = [math.degrees(angle) for angle in angles] # Convert angles from radians to degrees
-    #angles_deg = [max(min(180, angle), 0) for angle in angles_deg] # Ensure the angles are within the range 0-180
-    #angles_csv = ','.join(map(str, angles_deg)) # Convert angles to CSV format
-    #ser.write(angles_csv.encode()) # Write to serial port
-    
-
-
 def calcLegPoints(angles, last_output=[None]):
     if angles is None:
         if last_output[0] is None:
@@ -145,6 +174,7 @@ def calcLegPoints(angles, last_output=[None]):
     last_output[0] = output  # Store the output for future calls
     return output
 
+fig = plt.figure()
 def drawLegPoints(p, toggle=False, fixed_y=0):
     if toggle:
         plt.plot([x[0] for x in p],[fixed_y for _ in p],[x[1] for x in p], 'k-', lw=3)
@@ -175,187 +205,240 @@ def drawRobot(Lp,angles,center):
     drawLegPair(Tlb,Trb,Lp[2],Lp[3])
     #print(Tlf,Tlb,Trb)
 
-# Initalise Variables and Setup
-ser = serial.Serial('COM4', 115200) 
-#ser = serial.Serial('COM4', 115200, timeout=.25)#open coms. 
-time.sleep(2)
 
 # Define control points
-P0 = np.array([0, 0, 0]) + 50
-P1 = np.array([1, 2, 3]) + 50
-P2 = np.array([2, 3, 1]) + 50
-P3 = np.array([3, 0, 0]) + 50
+#P0 = np.array([0, 0, 0]) + 50
+#P1 = np.array([1, 2, 3]) + 50
+#P2 = np.array([2, 3, 1]) + 50
+#P3 = np.array([3, 0, 0]) + 50
 
 # Generate points along the Bezier curve
-t_values = np.linspace(0, 1, num=100)  # Parameter values
-points = [bezier_curve(t, P0, P1, P2, P3) for t in t_values]
-
-#%matplotlib notebook LEG INVERSE KINEMATICS:
+#t_values = np.linspace(0, 1, num=100)  # Parameter values
+#points = [bezier_curve(t, P0, P1, P2, P3) for t in t_values]
 
 setupView(110).view_init(elev=20., azim=135)
 
-fig = plt.figure()
-pi= 3.14
-omega =  pi/4
-phi =0
-psi = 0
+def check_rollover(ROLL, LIMIT):
+    if ROLL > LIMIT:
+        print('rollover detected')
+        return (0, 0, 0, 0, 0, 0)  # Return zeros if rollover is detected
+    return None  # Return None otherwise
 
-xm = 0
-ym = 0
-zm = 0
-
-l1=25
-l2=20
-l3=80
-l4=80
-
-L = 120
-W = 90
-
-Lp=np.array([[100,-100,100,1],[100,-100,-100,1],[-100,-100,100,1],[-100,-100,-100,1]])
-
-sHp=np.sin(pi/2)
-cHp=np.cos(pi/2)
-
-Lo=np.array([0,0,0,1])
-# Initialize last_angles with some default values
-last_angles = [0, 0, 0]
-##TO DO: modify serial write function and angles_deg function to output the 12 serperate resultant thetas.   
 pygame.init()
 
-# Initialize the joystick
-joystick = pygame.joystick.Joystick(0)
-joystick.init()
+
 
 fig = plt.figure()
+
 data_queue = queue.Queue()
 def read_serial(port, data_queue):
     while True:
-        data = port.read()
-        if data:
-            # If data is received, put it in the queue
-            data_queue.put(data)
+        try:
+        
+            data = port.read()
+            if data:
+                # If data is received, put it in the queue
+                data_queue.put(data)
+        except:
+            # If port is None, print a message and break out of the loop
+            print("Serial port is not available")
+            break
 
 
-# Start the read_serial function in a separate thread
+                    # Start the read_serial function in a separate thread
+                    
 read_thread = threading.Thread(target=read_serial, args=(ser, data_queue))
 read_thread.start()
+pid = PID(0.75, 0.05, 0.05)
+ppid = PID2(0.75, 0.05, 0.05)
 
-
-            
-class PrintValues(serial.threaded.Packetizer):
-    TERMINATOR = b'\n'
-    def connection_made(self, transport):
-        super(PrintValues, self).connection_made(transport)
-        print('port opened')
-        self.buffer = bytes()
-
-    def data_received(self, data):
-        self.buffer += data
-        if self.TERMINATOR in self.buffer:
-            lines = self.buffer.split(self.TERMINATOR)
-            self.buffer = lines[-1]
-            for line in lines[:-1]:
-                self.handle_packet(line)
-            self.buffer = bytes()  # Clear the buffer after each read
-
-    def handle_packet(self, packet):
-        if len(packet) > 1 and packet[0] == ord('R'):
-            roll = struct.unpack('i', packet[1:5])[0]
-            print(f'Roll: {roll}')
-        elif len(packet) > 1 and packet[0] == ord('P'):
-            pitch = struct.unpack('i', packet[1:5])[0]
-            print(f'Pitch: {pitch}')
-        time.sleep(0.01)    
-        ser.reset_input_buffer()
-    
-    def connection_lost(self, exc):
-        if exc:
-            print('port closed due to error:', exc)
-        else:
-            print('port closed')
 while True:
-        if not data_queue.empty():
-            data = data_queue.get()
-        # Process the data
-            print(f'Received data: {data}')
-        else: print('No new data')
-            # If there is no new data, do something else
+    p_value_str = ''
+    r_value_str = ''
+    current_str = ''
+    negative = False
+    rvalue = ''
+
+    while not data_queue.empty():
+        data = data_queue.get()
+        char = data.decode('ascii')  # Decode the byte to a string
+        #print('CHAR', char)
+        if char == '\n':  # End of a number
+            if 'P' in current_str:
+                r_value_str, p_value_str = current_str.split('P')
+                rvalue = r_value_str.lstrip('R')
+                #print('ROLL:', rvalue,'PITCH:', p_value_str)
+                if negative:
+                    r_value_str = '-' + r_value_str.lstrip('R')  # Remove 'R' from the start of the string
+                current_str = ''
+                negative = False
+            elif current_str.startswith('R'):
+                r_value_str = current_str[1:].lstrip('R')  # Remove 'R' from the start of the string
+                if negative:
+                    r_value_str = '-' + r_value_str
+                current_str = ''
+                negative = False
+        elif char == '-':
+            negative = True
+        else:
+            current_str += char
+            #
+    
+    
+
+    r2=''
+    p2 = ''
+    r3 = ''
+    r33 = ''
+    p33 = ''
+    p35 = ''
+    r22 = ''
+    A = ''
+    
+        # If there is no new data, do something else
+    
+
+    # Process events
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()  # Quit pygame
+            quit()  # Quit the program
+
+    # Use joystick input
+    Angle = float(joystick.get_axis(0))  # Left stick horizontal (left is -1, right is 1)
+    y = joystick.get_axis(1)*100  # Left stick vertical (up is -1, down is 1)
+    x = joystick.get_axis(2)*100  # Right stick horizontal (left is -1, right is 1)
+    C1 = float(joystick.get_axis(3))  # Right stick vertical (up is -1, down is 1)
+    z = joystick.get_hat(0)[0]  # D-pad horizontal (left is -1, right is 1)
+    B = joystick.get_hat(0)[1]  # D-pad vertical (up is 1, down is -1)
+
+    if joystick.get_button(1):  # Adjust the button index if necessary
+        # Toggle the fixed Y values
+        toggle = True
+
+    # Calculate body positions for each leg
+
+    pid.setpoint = Angle
+    ppid.setpoint = C1 
+    
+
+    
+    # the robot literally hit the keyboard and typed: 9iou420 #kinematic angle at entry to kinematic functions 
+    if rvalue:#
+        try: 
+            r2 = float(rvalue)
+            
+        except:
+            print('Warning: MPU Not connected. Running without Gyro', r2)
+            A = Angle
+            r2 = 0.0            
+            
+    if r2: 
+        try:         
+            r22 = np.radians(r2)
+        except: 
+            r22 = (0.0)
+    
+        r3 = round(r22, 3)
+        r33 = float(r3 - 1.5)
+
+    if r33:
+        check_rollover(r33, 1.25)  # Store the return value in a variable
+
+
+         # Store the return value in a variable
+
+
+    if r33:
+        #print(type(r33), r33)
+        print('roll', r33)
+        A = pid(r33) 
+        #print('modified roll', A)
+    else: 
+        A = Angle
+        #print('angle control mode no PID')
+        #this section will detect rollovers.
         
-        time.sleep(1)  # Sleep for a second
-        # Process events
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()  # Quit pygame
-                quit()  # Quit the program
+        #the roll control loop will go here. you need the PID target to be equal to the current R value set by the joystick
+    if p_value_str:
+        try: 
+            p2 = float(p_value_str)
+        except:
+            print('Warning: MPU Not connected. Running without Gyro', p2)
+            C = C1
+            p2 = 0
+                        
 
-        # Read the analog stick values
-        A = joystick.get_axis(0)  # Left stick horizontal (left is -1, right is 1)
-        y = joystick.get_axis(1)*100  # Left stick vertical (up is -1, down is 1)
-        x = joystick.get_axis(2)*100  # Right stick horizontal (left is -1, right is 1)
-        C = joystick.get_axis(3)  # Right stick vertical (up is -1, down is 1)
-        z = joystick.get_hat(0)[0]*100  # D-pad horizontal (left is -1, right is 1)
-        B = joystick.get_hat(0)[1]  # D-pad vertical (up is 1, down is -1)
+    if p2: 
+        try:         
+            p22 = np.radians(p2)
+        except: 
+            p22 = 0.0
+
+        p3 = round(p22, 3)
+        p33 = float(p3 - 1.5)
+
+    #print('gyro pitch:', p33)
+    #print('internal pitch:', B)
+    if p33:
+        #print(type(p33), p33)
+        p34 = float(p33)
+        C = ppid(p34) 
+        #print('modified pitch', B)
+    else: 
+        C = C1
+        print('angle control mode no PID')
+    
+
         
-        if joystick.get_button(2):  # Adjust the button index if necessary
-            # Toggle the fixed Y values
-            toggle = True
-
-        
-
-        #print(A, B, C, x, y, z)
-
-        # Calculate body positions for each leg
-        (Tlf, Trf, Tlb, Trb) = bodyIK(A, B, C, x, y, z)
-        #print(Tlf, Trf,'angles0.0')
+    
 
         # Calculate leg points for each leg
-        leg_points = [np.linalg.inv(T) @ L for T, L in zip([Tlf, Trf, Tlb, Trb], Lp)]
+    (Tlf, Trf, Tlb, Trb) = bodyIK(A, B, C, x, y, z)    
+    leg_points = [np.linalg.inv(T) @ L for T, L in zip([Tlf, Trf, Tlb, Trb], Lp)]
 
-        angles_out = []  # Initialize an empty list
+    angles_out = []  # Initialize an empty list
 
-        for point in leg_points:
-            angles = legIK(point) 
-            if angles is not None:  # Only extend if angles is not None
-                angles_out.extend(angles)
+    for point in leg_points:
+        angles = legIK(point) 
+        if angles is not None:  # Only extend if angles is not None
+            angles_out.extend(angles)
 
-        # Normalize angles and convert to degrees
-        angles_deg = [int((math.degrees(angle))) for angle in angles_out]
+    # Normalize angles and convert to degrees
+    angles_deg = [int((math.degrees(angle))) for angle in angles_out]
+    
+    #print(angles_deg)
+    # Check if angles_deg has exactly 12 values
+    if len(angles_deg) == 12:
+            # Convert all angles to CSV format
+        send_command('A', (angles_deg[0]+74))  # Front Right Shoulder
+        send_command('B', (angles_deg[1]+117))  # Front Right Elbow
+        send_command('C', (angles_deg[2]))  # Front Right Wrist
+        send_command('D', (angles_deg[3]+131))  # Front Left Shoulder
+        send_command('E', -(angles_deg[4]-53))  # Front Left Elbow
+        #print('E', -(angles_deg[4]-53))
+        send_command('F', -(angles_deg[5]-180))  # Front Left Wrist
+        #print('F', -(angles_deg[5]-180))
+        send_command('G', (angles_deg[6]+74))  # Back Right Hip
+        send_command('H', -(angles_deg[7]-25))
+        #print('H', -(angles_deg[7]-25))                                # Back Right Knee
+        send_command('I', (angles_deg[8]-179))  # Back Right Ankle
+        print('I', -(angles_deg[8]-179))
+        send_command('J', (angles_deg[9]+131))  # Back Left Hip
+        send_command('K', (angles_deg[10]+165))  # Back Left Knee
+        #print('K', (angles_deg[10]+165))
+        send_command('L', -(angles_deg[11]-180))  # Back Left Ankle
+        #print('G', -(angles_deg[11]-180))
+    else:
+        print("Error: Expected 12 angles, but got " + str(len(angles_deg)))
         
-        #print(angles_deg)
-        # Check if angles_deg has exactly 12 values
-        if len(angles_deg) == 12:
-                # Convert all angles to CSV format
-            send_command('A', (angles_deg[0]+74))  # Front Right Shoulder
-            send_command('B', (angles_deg[1]+117))  # Front Right Elbow
-            send_command('C', (angles_deg[2]))  # Front Right Wrist
-            send_command('D', (angles_deg[3]+131))  # Front Left Shoulder
-            send_command('E', -(angles_deg[4]-53))  # Front Left Elbow
-            send_command('F', -(angles_deg[5]-180))  # Front Left Wrist
-            send_command('G', (angles_deg[6]+74))  # Back Right Hip
-            send_command('H', -(angles_deg[7]+15))  # Back Right Knee
-            send_command('I', (angles_deg[8]-12))  # Back Right Ankle
-            send_command('J', (angles_deg[9]+131))  # Back Left Hip
-            send_command('K', (angles_deg[10]+165))  # Back Left Knee
-            send_command('L', (angles_deg[11]-12))  # Back Left Ankle
+    plt.clf()
+    ax = setupView(110)
+    ax.view_init(elev=20., azim=135)
 
-        plt.clf()
-        ax = setupView(110)
-        ax.view_init(elev=20., azim=135)
+    # Draw the robot
+    drawRobot(Lp, (A, B, C), (x, y, z))
 
-        # Draw the robot
-        drawRobot(Lp, (A, B, C), (x, y, z))
-        #plt.show()
-        # Redraw the plot
-        plt.draw()
-        plt.pause(0.0001)
-        
-        # Print all the angles
-        #print(angles_deg)
-        # else:
-        #     print("Error: Expected 12 angles, but got " + str(len(angles_out)))
-            
-        # Check if data is available to read
-        # Clear the input buffer
-        
-        # Set timeout to 1 second
+    # Redraw the plot
+    plt.draw()
+    plt.pause(0.0000001)
