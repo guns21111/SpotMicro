@@ -76,6 +76,7 @@ def send_command(axis,angle):
     command_bytes = command.encode()
     if ser is not None:
           ser.write(command_bytes)
+          #print(command_bytes)
     else: print('Connect Arduino')
 
     
@@ -249,8 +250,8 @@ def read_serial(port, data_queue):
                     
 read_thread = threading.Thread(target=read_serial, args=(ser, data_queue))
 read_thread.start()
-pid = PID(0.75, 0.05, 0.05)
-ppid = PID2(0.75, 0.05, 0.05)
+pid = PID(0.01, 0.05, 0.09)
+ppid = PID2(0.01, 0.05, 0.09)
 
 while True:
     p_value_str = ''
@@ -351,8 +352,11 @@ while True:
 
     if r33:
         #print(type(r33), r33)
-        print('roll', r33)
-        A = pid(r33) 
+        #print('roll', r33)
+        if r33-Angle > 10 or r33-Angle<-10:
+            A = pid(r33)
+        else:
+            A=float(0.0) 
         #print('modified roll', A)
     else: 
         A = Angle
@@ -420,13 +424,13 @@ while True:
         send_command('F', -(angles_deg[5]-180))  # Front Left Wrist
         #print('F', -(angles_deg[5]-180))
         send_command('G', (angles_deg[6]+74))  # Back Right Hip
-        send_command('H', -(angles_deg[7]-25))
-        #print('H', -(angles_deg[7]-25))                                # Back Right Knee
-        send_command('I', (angles_deg[8]-179))  # Back Right Ankle
-        print('I', -(angles_deg[8]-179))
+        send_command('H', (angles_deg[7]+125))
+        #print('H', -(angles_deg[7]+145))                                # Back Right Knee
+        send_command('I', (angles_deg[8]+10))  # Back Right Ankle
+        #print('I', -(angles_deg[8]-179))
         send_command('J', (angles_deg[9]+131))  # Back Left Hip
-        send_command('K', (angles_deg[10]+165))  # Back Left Knee
-        #print('K', (angles_deg[10]+165))
+        send_command('K', -(angles_deg[10]-35))  # Back Left Knee
+        #print('K', -(angles_deg[10]-25))
         send_command('L', -(angles_deg[11]-180))  # Back Left Ankle
         #print('G', -(angles_deg[11]-180))
     else:
