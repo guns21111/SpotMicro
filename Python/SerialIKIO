@@ -41,6 +41,7 @@ try:
 except pygame.error:
     print('Could not find Joystick. Starting Program with keyboard input')
     joystick = None
+    keys = pygame.key.get_pressed()
 
 fig = plt.figure()
 pi= 3.14
@@ -312,17 +313,26 @@ while True:
             quit()  # Quit the program
 
     # Use joystick input
-    Angle = float(joystick.get_axis(0))  # Left stick horizontal (left is -1, right is 1)
-    y = joystick.get_axis(1)*100  # Left stick vertical (up is -1, down is 1)
-    x = joystick.get_axis(2)*100  # Right stick horizontal (left is -1, right is 1)
-    C1 = float(joystick.get_axis(3))  # Right stick vertical (up is -1, down is 1)
-    z = joystick.get_hat(0)[0]  # D-pad horizontal (left is -1, right is 1)
-    B = joystick.get_hat(0)[1]  # D-pad vertical (up is 1, down is -1)
+    if joystick is not None:
+        Angle = float(joystick.get_axis(0))  # Left stick horizontal (left is -1, right is 1)
+        y = joystick.get_axis(1)*100  # Left stick vertical (up is -1, down is 1)
+        x = joystick.get_axis(2)*100  # Right stick horizontal (left is -1, right is 1)
+        C1 = float(joystick.get_axis(3))  # Right stick vertical (up is -1, down is 1)
+        z = joystick.get_hat(0)[0]  # D-pad horizontal (left is -1, right is 1)
+        B = joystick.get_hat(0)[1]  # D-pad vertical (up is 1, down is -1)
 
-    if joystick.get_button(1):  # Adjust the button index if necessary
-        # Toggle the fixed Y values
-        toggle = True
-
+        if joystick.get_button(1):  # Adjust the button index if necessary
+            # Toggle the fixed Y values
+            toggle = True
+    else:
+        # Use keyboard as backup
+        pygame.event.pump()
+        Angle = 1 if keys[pygame.K_RIGHT] else -1 if keys[pygame.K_LEFT] else 0
+        y = -100 if keys[pygame.K_UP] else 100 if keys[pygame.K_DOWN] else 0
+        x = 1 if keys[pygame.K_d] else -1 if keys[pygame.K_a] else 0
+        C1 = 1 if keys[pygame.K_w] else -1 if keys[pygame.K_s] else 0
+        z = 1 if keys[pygame.K_e] else -1 if keys[pygame.K_q] else 0
+        B = 1 if keys[pygame.K_r] else -1 if keys[pygame.K_f] else 0
     # Calculate body positions for each leg
 
     pid.setpoint = Angle
