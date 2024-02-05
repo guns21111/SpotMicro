@@ -23,6 +23,9 @@ from simple_pid import PID as PID2
 
 
 # Initalise Variables and Setup
+debug = False
+
+
 try:
     ser = serial.Serial('COM4', 115200, timeout=.25)
 except serial.SerialException:
@@ -73,6 +76,8 @@ def send_command(axis,angle):
     if (angle) < 0:
         angle = 0
     command = axis + str(angle) + '\n'
+    if debug: 
+        print(command)
     command_bytes = command.encode()
     if ser is not None:
           ser.write(command_bytes)
@@ -204,7 +209,8 @@ def drawRobot(Lp,angles,center):
 
     drawLegPair(Tlf,Trf,Lp[0],Lp[1])
     drawLegPair(Tlb,Trb,Lp[2],Lp[3])
-    #print(Tlf,Tlb,Trb)
+    if debug: 
+        print(Tlf,Tlb,Trb)
 
 
 # Define control points
@@ -342,6 +348,8 @@ while True:
     
         r3 = round(r22, 3)
         r33 = float(r3 - 1.5)
+        if debug:
+            print('Roll:', r33)
 
     if r33:
         check_rollover(r33, 1.25)  # Store the return value in a variable
@@ -353,7 +361,7 @@ while True:
     if r33:
         #print(type(r33), r33)
         #print('roll', r33)
-        if r33-Angle > 10 or r33-Angle<-10:
+        if r33-Angle > 0.1 or r33-Angle<-0.1:
             A = pid(r33)
         else:
             A=float(0.0) 
@@ -381,13 +389,16 @@ while True:
 
         p3 = round(p22, 3)
         p33 = float(p3 - 1.5)
+        if debug:
+            print('Pitch:', p33)
 
     #print('gyro pitch:', p33)
     #print('internal pitch:', B)
     if p33:
         #print(type(p33), p33)
         p34 = float(p33)
-        C = ppid(p34) 
+        if p34-C > 0.1 or p34-C<-0.1:
+            C = ppid(p34) 
         #print('modified pitch', B)
     else: 
         C = C1
@@ -420,19 +431,13 @@ while True:
         send_command('C', (angles_deg[2]))  # Front Right Wrist
         send_command('D', (angles_deg[3]+131))  # Front Left Shoulder
         send_command('E', -(angles_deg[4]-53))  # Front Left Elbow
-        #print('E', -(angles_deg[4]-53))
         send_command('F', -(angles_deg[5]-180))  # Front Left Wrist
-        #print('F', -(angles_deg[5]-180))
         send_command('G', (angles_deg[6]+74))  # Back Right Hip
-        send_command('H', (angles_deg[7]+125))
-        #print('H', -(angles_deg[7]+145))                                # Back Right Knee
+        send_command('H', (angles_deg[7]+125))                              # Back Right Knee
         send_command('I', (angles_deg[8]+10))  # Back Right Ankle
-        #print('I', -(angles_deg[8]-179))
         send_command('J', (angles_deg[9]+131))  # Back Left Hip
         send_command('K', -(angles_deg[10]-35))  # Back Left Knee
-        #print('K', -(angles_deg[10]-25))
         send_command('L', -(angles_deg[11]-180))  # Back Left Ankle
-        #print('G', -(angles_deg[11]-180))
     else:
         print("Error: Expected 12 angles, but got " + str(len(angles_deg)))
         
